@@ -18,6 +18,10 @@ func SetupRoutes(router *gin.Engine) {
 		{
 			protected.GET("/profile", controllers.GetProfile)
 			protected.POST("/resume/upload", controllers.UploadResume)
+			protected.GET("/resumes", controllers.GetUserResumes)
+			protected.GET("/resume/:id", controllers.GetResumeById)
+			protected.DELETE("/resume/:id", controllers.DeleteResume)
+			protected.GET("/resume/:id/jobs", controllers.GetResumeJobs)
 		}
 	}
 }

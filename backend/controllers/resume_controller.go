@@ -223,3 +223,128 @@ func UploadResume(c *gin.Context) {
 		"recommended_jobs": recommendedJobs,
 	})
 }
+
+// GetUserResumes fetches all resumes for the authenticated user
+func GetUserResumes(c *gin.Context) {
+	// Extract authenticated user ID from context
+	uidVal, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	uid, ok := uidVal.(uint)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid user context"})
+		return
+	}
+
+	var resumes []models.Resume
+	if err := config.DB.Where("user_id = ?", uid).Order("uploaded_at DESC").Find(&resumes).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch resumes"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"resumes": resumes,
+	})
+}
+
+// GetResumeById fetches a single resume by ID (only if it belongs to the user)
+func GetResumeById(c *gin.Context) {
+	// Extract authenticated user ID from context
+	uidVal, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	uid, ok := uidVal.(uint)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid user context"})
+		return
+	}
+
+	resumeId := c.Param("id")
+	var resume models.Resume
+	if err := config.DB.Where("id = ? AND user_id = ?", resumeId, uid).First(&resume).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "resume not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"resume": resume,
+	})
+}
+
+// DeleteResume deletes a resume (only if it belongs to the user)
+func DeleteResume(c *gin.Context) {
+	// Extract authenticated user ID from context
+	uidVal, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	uid, ok := uidVal.(uint)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid user context"})
+		return
+	}
+
+	resumeId := c.Param("id")
+	var resume models.Resume
+	if err := config.DB.Where("id = ? AND user_id = ?", resumeId, uid).First(&resume).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "resume not found"})
+		return
+	}
+
+	// Delete associated job recommendations first
+	config.DB.Where("resume_id = ?", resumeId).Delete(&models.JobRecommendation{})
+
+	// Delete the resume
+	if err := config.DB.Delete(&resume).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete resume"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "resume deleted successfully",
+	})
+}
+
+// GetResumeJobs fetches all job recommendations for a specific resume
+func GetResumeJobs(c *gin.Context) {
+	// Extract authenticated user ID from context
+	uidVal, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	uid, ok := uidVal.(uint)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid user context"})
+		return
+	}
+
+	resumeId := c.Param("id")
+
+	// Verify the resume belongs to the user
+	var resume models.Resume
+	if err := config.DB.Where("id = ? AND user_id = ?", resumeId, uid).First(&resume).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "resume not found"})
+		return
+	}
+
+	// Fetch job recommendations
+	var jobs []models.JobRecommendation
+	if err := config.DB.Where("resume_id = ?", resumeId).Order("created_at DESC").Find(&jobs).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch job recommendations"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"jobs": jobs,
+	})
+}

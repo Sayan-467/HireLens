@@ -39,6 +39,7 @@ func SignUp(c *gin.Context) {
 	user := models.User{Name: input.Name, Email: input.Email, Password: string(hashedPassword)}
 	if err := config.DB.Create(&user).Error; err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "email already exists"})
+		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "user registered successfully"})

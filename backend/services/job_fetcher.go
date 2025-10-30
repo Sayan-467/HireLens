@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -42,30 +43,173 @@ type AdzunaResponse struct {
 	} `json:"results"`
 }
 
-// FetchJobRecommendations fetches real-time jobs based on skills by Adzuna app api
+// APIResult holds the result from an API call
+type APIResult struct {
+	Jobs   []Job
+	Source string
+	Error  error
+}
+
+// FetchJobRecommendations fetches real-time jobs using parallel API calls
 func FetchJobRecommendations(skills []string, limit int) ([]Job, error) {
 	if limit <= 0 || limit > 10 {
 		limit = 5
 	}
 
-	// Get API credentials from environment
+	fmt.Println("\n🚀 Starting Parallel Job Fetch System")
+	fmt.Printf("📊 Target: %d jobs from skills: %v\n", limit, skills)
+
+	// Priority 1: Fast, reliable APIs (run in parallel)
+	priority1APIs := []func([]string, int) ([]Job, error){
+		fetchFromRemoteOK,          // Free, no auth, tech jobs
+		fetchFromArbeitnow,         // Free, no auth, EU + US jobs
+		fetchFromTheMuse,           // Free, no auth, curated jobs
+		fetchFromAdzunaIfAvailable, // Only if credentials available
+	}
+
+	// Priority 2: Backup APIs (run in parallel if Priority 1 fails)
+	priority2APIs := []func([]string, int) ([]Job, error){
+		fetchFromFindwork,           // Free, no auth, tech focus
+		fetchFromJoobleIfAvailable,  // Only if API key available
+		fetchFromJSearchIfAvailable, // Only if RapidAPI key available
+	}
+
+	// Try Priority 1 APIs in parallel
+	fmt.Println("\n🔵 Priority 1: Fetching from 3-4 APIs simultaneously...")
+	allJobs, totalFetched := fetchParallel(priority1APIs, skills, limit)
+
+	// If we got enough jobs, return them
+	if len(allJobs) >= limit {
+		fmt.Printf("\n✅ SUCCESS: Got %d jobs from Priority 1 APIs\n", len(allJobs))
+		return deduplicateJobs(allJobs, limit), nil
+	}
+
+	// If Priority 1 didn't get enough jobs, try Priority 2
+	if totalFetched < limit {
+		fmt.Printf("\n🟡 Priority 1 only got %d jobs, trying Priority 2 APIs...\n", totalFetched)
+		moreJobs, _ := fetchParallel(priority2APIs, skills, limit-totalFetched)
+		allJobs = append(allJobs, moreJobs...)
+	}
+
+	// Deduplicate and return
+	if len(allJobs) > 0 {
+		fmt.Printf("\n✅ TOTAL: Fetched %d jobs from all APIs\n", len(allJobs))
+		return deduplicateJobs(allJobs, limit), nil
+	}
+
+	// Final fallback: generate sample jobs
+	fmt.Println("\n📝 All APIs failed, generating sample jobs")
+	return generateSampleJobs(skills, limit), nil
+}
+
+// fetchParallel runs multiple API fetchers in parallel and collects results
+func fetchParallel(apis []func([]string, int) ([]Job, error), skills []string, limit int) ([]Job, int) {
+	var wg sync.WaitGroup
+	results := make(chan APIResult, len(apis))
+
+	// Launch all API calls in parallel
+	for _, apiFunc := range apis {
+		wg.Add(1)
+		go func(fn func([]string, int) ([]Job, error)) {
+			defer wg.Done()
+			jobs, err := fn(skills, limit)
+			results <- APIResult{
+				Jobs:  jobs,
+				Error: err,
+			}
+		}(apiFunc)
+	}
+
+	// Wait for all goroutines to complete
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Collect all results
+	var allJobs []Job
+	successCount := 0
+	failCount := 0
+
+	for result := range results {
+		if result.Error == nil && len(result.Jobs) > 0 {
+			allJobs = append(allJobs, result.Jobs...)
+			successCount++
+			fmt.Printf("  ✓ API returned %d jobs\n", len(result.Jobs))
+		} else {
+			failCount++
+			fmt.Printf("  ✗ API failed or returned 0 jobs\n")
+		}
+	}
+
+	fmt.Printf("📈 Parallel fetch complete: %d succeeded, %d failed\n", successCount, failCount)
+	return allJobs, len(allJobs)
+}
+
+// deduplicateJobs removes duplicate jobs based on title + company and limits to desired count
+func deduplicateJobs(jobs []Job, limit int) []Job {
+	seen := make(map[string]bool)
+	unique := make([]Job, 0, limit)
+
+	for _, job := range jobs {
+		// Create a unique key based on title and company
+		key := strings.ToLower(fmt.Sprintf("%s|%s", job.Title, job.Company))
+
+		if !seen[key] {
+			seen[key] = true
+			unique = append(unique, job)
+
+			// Stop when we reach the desired limit
+			if len(unique) >= limit {
+				break
+			}
+		}
+	}
+
+	fmt.Printf("🔧 Deduplication: %d jobs → %d unique jobs\n", len(jobs), len(unique))
+	return unique
+}
+
+// fetchFromAdzunaIfAvailable fetches from Adzuna only if credentials are available
+func fetchFromAdzunaIfAvailable(skills []string, limit int) ([]Job, error) {
 	appId := os.Getenv("ADZUNA_APP_ID")
 	appKey := os.Getenv("ADZUNA_APP_KEY")
 
-	// If no API credentials, use fallback method (GitHub Jobs alternative or mock data)
 	if appId == "" || appKey == "" {
-		fmt.Println("⚠️ No Adzuna API credentials found, using fallback method")
-		return fetchJobsFallback(skills, limit)
+		return nil, fmt.Errorf("Adzuna credentials not available")
 	}
 
+	return fetchFromAdzuna(skills, limit, appId, appKey)
+}
+
+// fetchFromJoobleIfAvailable fetches from Jooble only if API key is available
+func fetchFromJoobleIfAvailable(skills []string, limit int) ([]Job, error) {
+	apiKey := os.Getenv("JOOBLE_API_KEY")
+	if apiKey == "" {
+		return nil, fmt.Errorf("Jooble API key not available")
+	}
+
+	return fetchFromJooble(skills, limit, apiKey)
+}
+
+// fetchFromJSearchIfAvailable fetches from JSearch only if RapidAPI key is available
+func fetchFromJSearchIfAvailable(skills []string, limit int) ([]Job, error) {
+	apiKey := os.Getenv("RAPIDAPI_KEY")
+	if apiKey == "" {
+		return nil, fmt.Errorf("RapidAPI key not available")
+	}
+
+	return fetchFromJSearch(skills, limit, apiKey)
+}
+
+// fetchFromAdzuna fetches jobs from Adzuna API
+func fetchFromAdzuna(skills []string, limit int, appId, appKey string) ([]Job, error) {
 	// Build search query from skills
 	query := strings.Join(skills, " OR ")
 	if len(query) > 200 {
-		// Limit query length
 		query = strings.Join(skills[:5], " OR ")
 	}
 
-	// Adzuna API endpoint (US jobs)
 	country := os.Getenv("JOB_COUNTRY")
 	if country == "" {
 		country = "us"
@@ -82,36 +226,29 @@ func FetchJobRecommendations(skills []string, limit int) ([]Job, error) {
 
 	fullURL := fmt.Sprintf("%s?%s", apiURL, params.Encode())
 
-	fmt.Println("🔍 Fetching jobs from Adzuna API...")
-
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Get(fullURL)
 	if err != nil {
-		fmt.Println("❌ Error fetching jobs from Adzuna:", err)
-		return fetchJobsFallback(skills, limit)
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		fmt.Printf("⚠️ Adzuna API returned status %d, using fallback\n", resp.StatusCode)
-		return fetchJobsFallback(skills, limit)
+		return nil, fmt.Errorf("status code: %d", resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fetchJobsFallback(skills, limit)
+		return nil, err
 	}
 
 	var adzunaResp AdzunaResponse
 	if err := json.Unmarshal(body, &adzunaResp); err != nil {
-		fmt.Println("❌ Error parsing Adzuna response:", err)
-		return fetchJobsFallback(skills, limit)
+		return nil, err
 	}
 
-	// If Adzuna returned 0 results, use fallback
 	if len(adzunaResp.Results) == 0 {
-		fmt.Println("⚠️ Adzuna returned 0 jobs, using fallback method")
-		return fetchJobsFallback(skills, limit)
+		return nil, fmt.Errorf("no jobs found")
 	}
 
 	// Convert to our Job struct
@@ -128,7 +265,6 @@ func FetchJobRecommendations(skills []string, limit int) ([]Job, error) {
 			}
 		}
 
-		// Clean description (remove HTML tags and limit length)
 		description := cleanDescription(result.Description, 200)
 
 		jobs = append(jobs, Job{
@@ -143,73 +279,8 @@ func FetchJobRecommendations(skills []string, limit int) ([]Job, error) {
 		})
 	}
 
-	fmt.Printf("✅ Found %d jobs from Adzuna\n", len(jobs))
+	fmt.Printf("  ✓ Adzuna API: %d jobs\n", len(jobs))
 	return jobs, nil
-}
-
-// fetchJobsFallback tries multiple fallback methods
-func fetchJobsFallback(skills []string, limit int) ([]Job, error) {
-	// Try 1: RemoteOK API (Free, no auth, reliable)
-	fmt.Println("🔄 Trying RemoteOK API...")
-	jobs, err := fetchFromRemoteOK(skills, limit)
-	if err == nil && len(jobs) > 0 {
-		return jobs, nil
-	}
-	fmt.Println("⚠️ RemoteOK API didn't return jobs, trying Jooble...")
-
-	// Try 2: Jooble API (API key required, large job database)
-	joobleAPIKey := os.Getenv("JOOBLE_API_KEY")
-	if joobleAPIKey != "" {
-		fmt.Println("🔄 Trying Jooble API...")
-		jobs, err = fetchFromJooble(skills, limit, joobleAPIKey)
-		if err == nil && len(jobs) > 0 {
-			return jobs, nil
-		}
-		fmt.Println("⚠️ Jooble API didn't return jobs, trying Arbeitnow...")
-	} else {
-		fmt.Println("⚠️ No Jooble API key configured, trying Arbeitnow...")
-	}
-
-	// Try 3: Arbeitnow API (Free, no auth, European + US jobs)
-	fmt.Println("🔄 Trying Arbeitnow API...")
-	jobs, err = fetchFromArbeitnow(skills, limit)
-	if err == nil && len(jobs) > 0 {
-		return jobs, nil
-	}
-	fmt.Println("⚠️ Arbeitnow API didn't return jobs, trying The Muse...")
-
-	// Try 3: The Muse API (Free, no auth)
-	fmt.Println("🔄 Trying The Muse API...")
-	jobs, err = fetchFromTheMuse(skills, limit)
-	if err == nil && len(jobs) > 0 {
-		return jobs, nil
-	}
-	fmt.Println("⚠️ The Muse API didn't return jobs, trying Findwork...")
-
-	// Try 4: Findwork API (Free, no auth, tech jobs)
-	fmt.Println("🔄 Trying Findwork API...")
-	jobs, err = fetchFromFindwork(skills, limit)
-	if err == nil && len(jobs) > 0 {
-		return jobs, nil
-	}
-	fmt.Println("⚠️ Findwork API didn't return jobs, trying RapidAPI...")
-
-	// Try 5: RapidAPI JSearch (if key available)
-	rapidAPIKey := os.Getenv("RAPIDAPI_KEY")
-	if rapidAPIKey != "" {
-		fmt.Println("🔄 Trying RapidAPI JSearch...")
-		jobs, err := fetchFromJSearch(skills, limit, rapidAPIKey)
-		if err == nil && len(jobs) > 0 {
-			return jobs, nil
-		}
-		fmt.Println("⚠️ RapidAPI JSearch didn't return jobs")
-	} else {
-		fmt.Println("⚠️ No RapidAPI key configured")
-	}
-
-	// Final fallback: Sample jobs
-	fmt.Println("📝 All APIs failed, generating sample jobs based on skills")
-	return generateSampleJobs(skills, limit), nil
 }
 
 // fetchFromTheMuse uses The Muse API (free, no auth)
@@ -289,7 +360,7 @@ func fetchFromTheMuse(skills []string, limit int) ([]Job, error) {
 		})
 	}
 
-	fmt.Printf("✅ Found %d jobs from The Muse\n", len(jobs))
+	fmt.Printf("  ✓ The Muse API: %d jobs\n", len(jobs))
 	return jobs, nil
 }
 
@@ -375,7 +446,7 @@ func fetchFromJSearch(skills []string, limit int, apiKey string) ([]Job, error) 
 		})
 	}
 
-	fmt.Printf("✅ Found %d jobs from JSearch\n", len(jobs))
+	fmt.Printf("  ✓ JSearch API: %d jobs\n", len(jobs))
 	return jobs, nil
 }
 
@@ -480,7 +551,7 @@ func fetchFromJooble(skills []string, limit int, apiKey string) ([]Job, error) {
 		})
 	}
 
-	fmt.Printf("✅ Found %d jobs from Jooble (total available: %d)\n", len(jobs), joobleResp.TotalCount)
+	fmt.Printf("  ✓ Jooble API: %d jobs (total available: %d)\n", len(jobs), joobleResp.TotalCount)
 	return jobs, nil
 }
 
@@ -585,7 +656,7 @@ func fetchFromArbeitnow(skills []string, limit int) ([]Job, error) {
 		})
 	}
 
-	fmt.Printf("✅ Found %d jobs from Arbeitnow\n", len(jobs))
+	fmt.Printf("  ✓ Arbeitnow API: %d jobs\n", len(jobs))
 	return jobs, nil
 }
 
@@ -692,7 +763,7 @@ func fetchFromFindwork(skills []string, limit int) ([]Job, error) {
 		})
 	}
 
-	fmt.Printf("✅ Found %d jobs from Findwork\n", len(jobs))
+	fmt.Printf("  ✓ Findwork API: %d jobs\n", len(jobs))
 	return jobs, nil
 }
 
@@ -811,7 +882,7 @@ func fetchFromRemoteOK(skills []string, limit int) ([]Job, error) {
 		})
 	}
 
-	fmt.Printf("✅ Found %d jobs from RemoteOK\n", len(jobs))
+	fmt.Printf("  ✓ RemoteOK API: %d jobs\n", len(jobs))
 	return jobs, nil
 } // generateSampleJobs creates sample job listings based on skills
 func generateSampleJobs(skills []string, limit int) []Job {

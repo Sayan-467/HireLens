@@ -31,7 +31,25 @@ func main() {
 	log.Println("Database tables migrated successfully")
 
 	router := gin.Default()
+
+	// CORS middleware
+	router.Use(func(c *gin.Context) {
+		c.Writer.Header().Set("Access-Control-Allow-Origin", "http://localhost:3000")
+		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE")
+
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(204)
+			return
+		}
+
+		c.Next()
+	})
+
 	routes.SetupRoutes(router)
+
+	log.Println("✅ Server starting on :8080")
 	if err := router.Run(":8080"); err != nil {
 		log.Fatalf("Failed to start server: %v\n", err)
 	}
