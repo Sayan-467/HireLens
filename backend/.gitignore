@@ -1,0 +1,9 @@
+# Ignore environment variables file
+.env
+# ignore all png files
+*.png
+# ignore all pdf files
+*.pdf
+/services/cloudinary.go
+# ignore all json files
+*.json

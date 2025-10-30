@@ -1,0 +1,87 @@
+# Environment Variables
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# Backend - Go
+backend/backend.exe
+backend/backend
+backend/*.exe
+backend/*.exe~
+backend/test.exe
+backend/go.work
+
+# Backend - Temporary Files
+backend/temp_resume*.pdf
+backend/temp_*
+
+# Backend - Logs
+backend/*.log
+
+# Python - Analyzer Service
+backend/analyzer/__pycache__/
+backend/analyzer/*.pyc
+backend/analyzer/.pytest_cache/
+backend/analyzer/venv/
+backend/analyzer/env/
+backend/analyzer/.venv/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# IDE - VSCode
+.vscode/
+.vscode/settings.json
+.vscode/launch.json
+
+# IDE - JetBrains
+.idea/
+*.iml
+*.iws
+
+# IDE - Other
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS Files
+Thumbs.db
+desktop.ini
+
+# Node.js (if frontend uses it)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+
+# Frontend Build
+frontend/build/
+frontend/dist/
+frontend/.next/
+frontend/out/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Testing
+coverage/
+.nyc_output/
+*.coverage
+
+# Misc
+.cache/
+*.bak
+*.tmp
+*.temp
