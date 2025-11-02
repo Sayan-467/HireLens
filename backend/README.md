@@ -130,12 +130,8 @@ go mod download
 Create a `.env` file in the backend directory:
 
 ```env
-# Database Configuration
-DB_USER=postgres
-DB_PASSWORD=your_password
-DB_NAME=smart_resume_db
-DB_HOST=localhost
-DB_PORT=5432
+# Database Configuration (PostgreSQL URI)
+DATABASE_URL=postgres://postgres:your_password@localhost:5432/smart_resume_db?sslmode=disable
 
 # JWT Secret (generate a secure random string)
 JWT_SECRET=your_jwt_secret_key
@@ -148,6 +144,7 @@ APPWRITE_BUCKET_ID=your_bucket_id
 
 # Optional: AI API Keys
 GEMINI_API_KEY=your_gemini_api_key
+```
 
 ### Job API Credentials (Optional - Enhances Results)
 

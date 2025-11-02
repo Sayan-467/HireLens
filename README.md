@@ -185,12 +185,8 @@ cp .env.example .env
 
 **Required `.env` variables:**
 ```env
-# Database
-DB_HOST=localhost
-DB_PORT=5432
-DB_USER=postgres
-DB_PASSWORD=your_password
-DB_NAME=smart_resume_db
+# Database (PostgreSQL URI)
+DATABASE_URL=postgres://postgres:your_password@localhost:5432/smart_resume_db?sslmode=disable
 
 # JWT (generate random 32+ char string)
 JWT_SECRET=your_super_secret_jwt_key_min_32_characters
@@ -590,7 +586,7 @@ Set environment variable:
 ### Database (Cloud PostgreSQL)
 
 - Use Supabase, Railway, or AWS RDS
-- Update `DB_HOST`, `DB_PORT` in backend .env
+- Update `DATABASE_URL` in backend .env with your cloud database URI
 - Run migrations (auto-handled by GORM)
 
 ---
@@ -673,12 +669,8 @@ Solution:
 
 ### Backend `.env`
 ```env
-# Database
-DB_HOST=localhost
-DB_PORT=5432
-DB_USER=postgres
-DB_PASSWORD=your_password
-DB_NAME=smart_resume_db
+# Database (PostgreSQL URI)
+DATABASE_URL=postgres://postgres:your_password@localhost:5432/smart_resume_db?sslmode=disable
 
 # JWT
 JWT_SECRET=your_very_secret_key_min_32_chars
