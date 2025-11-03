@@ -13,9 +13,10 @@ import (
 )
 
 func main() {
+	// Load .env file only in local development (optional in production)
 	err := godotenv.Load()
 	if err != nil {
-		log.Fatal("Error handling .env", err)
+		log.Println("No .env file found, using environment variables from system")
 	}
 
 	cfg := config.LoadConfig()
